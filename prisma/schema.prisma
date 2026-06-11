@@ -1,0 +1,210 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum CategoryStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum CatalogSellerStatus {
+  PENDING_REVIEW
+  ACTIVE
+  REJECTED
+  SUSPENDED
+}
+
+enum ListingStatus {
+  DRAFT
+  PENDING_REVIEW
+  PUBLISHED
+  PAUSED
+  ARCHIVED
+  BLOCKED
+  REJECTED
+}
+
+enum ListingModerationStatus {
+  NOT_SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
+  BLOCKED
+  CHANGES_REQUESTED
+}
+
+enum ListingMediaType {
+  IMAGE
+  VIDEO
+}
+
+enum BulkImportStatus {
+  COMPLETED
+  COMPLETED_WITH_ERRORS
+  FAILED
+}
+
+enum BulkImportItemStatus {
+  CREATED
+  FAILED
+}
+
+model Category {
+  id              String         @id @default(cuid())
+  parentId        String?
+  name            String
+  slug            String         @unique
+  description     String?
+  status          CategoryStatus @default(ACTIVE)
+  sortOrder       Int            @default(0)
+  attributeSchema Json?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  parent          Category?      @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children        Category[]     @relation("CategoryTree")
+  listings        Listing[]
+
+  @@index([parentId])
+  @@index([status])
+  @@map("categories")
+}
+
+model CatalogSeller {
+  sellerId   String              @id
+  authUserId String              @unique
+  email      String?
+  status     CatalogSellerStatus @default(PENDING_REVIEW)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  listings   Listing[]
+
+  @@index([status])
+  @@map("catalog_sellers")
+}
+
+model Listing {
+  id                String                  @id @default(cuid())
+  sellerId          String
+  categoryId        String
+  title             String
+  description       String
+  brand             String?
+  attributes        Json
+  status            ListingStatus           @default(DRAFT)
+  moderationStatus  ListingModerationStatus @default(NOT_SUBMITTED)
+  moderationNotes   String?
+  publishedAt       DateTime?
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  seller            CatalogSeller           @relation(fields: [sellerId], references: [sellerId], onDelete: Restrict)
+  category          Category                @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  variants          ListingVariant[]
+  media             ListingMedia[]
+  moderationEvents  ListingModerationEvent[]
+
+  @@index([sellerId])
+  @@index([categoryId])
+  @@index([status])
+  @@index([moderationStatus])
+  @@map("listings")
+}
+
+model ListingVariant {
+  id             String   @id @default(cuid())
+  listingId      String
+  sku            String
+  optionValues   Json
+  basePriceCents Int
+  currency       String   @default("USD")
+  weightGrams    Int?
+  lengthMm       Int?
+  widthMm        Int?
+  heightMm       Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  listing        Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([listingId, sku])
+  @@index([listingId])
+  @@map("listing_variants")
+}
+
+model ListingMedia {
+  id            String           @id @default(cuid())
+  listingId     String
+  mediaType     ListingMediaType
+  url           String
+  fileReference String
+  altText       String?
+  sortOrder     Int              @default(0)
+  isPrimary     Boolean          @default(false)
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  listing       Listing          @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("listing_media")
+}
+
+model ListingModerationEvent {
+  id               String                  @id @default(cuid())
+  listingId        String
+  fromStatus       ListingStatus?
+  toStatus         ListingStatus
+  moderationStatus ListingModerationStatus
+  actorUserId      String
+  reason           String?
+  createdAt        DateTime                @default(now())
+  listing          Listing                 @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@index([listingId])
+  @@map("listing_moderation_events")
+}
+
+model BulkImportJob {
+  id           String              @id @default(cuid())
+  sellerId     String
+  status       BulkImportStatus
+  totalItems   Int
+  successCount Int
+  errorCount   Int
+  createdAt    DateTime            @default(now())
+  completedAt  DateTime?
+  items        BulkImportJobItem[]
+
+  @@index([sellerId])
+  @@index([status])
+  @@map("bulk_import_jobs")
+}
+
+model BulkImportJobItem {
+  id         String               @id @default(cuid())
+  jobId      String
+  lineNumber Int
+  status     BulkImportItemStatus
+  listingId  String?
+  input      Json
+  errors     Json?
+  createdAt  DateTime             @default(now())
+  job        BulkImportJob         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@map("bulk_import_job_items")
+}
+
+model OutboxEvent {
+  id          String    @id @default(cuid())
+  topic       String
+  type        String
+  payload     Json
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([topic])
+  @@index([publishedAt])
+  @@map("outbox_events")
+}
